@@ -30,8 +30,8 @@ DallasTemperature sensors2(&oneWire2);
 //char ssid[] = "GlobeAtHome_259a8_2.4";
 //char pass[] = "PXhsUbp4";
 
-har ssid[] = "BABIHOUSE";
-char pass[] = "#BabiCPA080522"
+char ssid[] = "BABIHOUSE";
+char pass[] = "#BabiCPA080522";
 
 // ====== Firebase Config ======
 #define FIREBASE_HOST "https://cuppa-c89f3-default-rtdb.firebaseio.com/"
