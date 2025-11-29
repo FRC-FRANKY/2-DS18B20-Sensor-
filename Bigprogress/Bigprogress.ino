@@ -9,18 +9,22 @@
 #include <FirebaseESP32.h>
 
 // ====== DS18B20 Sensor #1 ======
-#define ONE_WIRE_BUS 4
+#define ONE_WIRE_BUS 4 // D4 YELLOW WIRE can interchange but same color hahaha
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
 // ====== DS18B20 Sensor #2 ======
-#define ONE_WIRE_BUS_2 18
+#define ONE_WIRE_BUS_2 18 // D18 YELLOW WIRE can interchange but same color as well  hahaha
 OneWire oneWire2(ONE_WIRE_BUS_2);
 DallasTemperature sensors2(&oneWire2);
 
 // ====== Relay & LED Pins ======
-#define RELAY_PIN 26
+#define RELAY_PIN 26 //IN pin in relay black wire
 #define LED_PIN 5      
+
+/// RELAY PINS
+
+//the vcc connect into 3.3V or 5V and the GND are in Ground of ESP32
 
 // ====== Sensor Detection LEDs ======
 #define LED_SENSOR1 33
@@ -30,11 +34,11 @@ DallasTemperature sensors2(&oneWire2);
 //char ssid[] = "GlobeAtHome_259a8_2.4";
 //char pass[] = "PXhsUbp4";
 
-char ssid[] = "BABIHOUSE";
-char pass[] = "#BabiCPA080522";
+char ssid[] = "MONKEY D. LUFFY";
+char pass[] = "KINGOFTHEPIRATES";
 
 // ====== Firebase Config ======
-#define FIREBASE_HOST "https://cuppa-c89f3-default-rtdb.firebaseio.com/"
+#define FIREBASE_HOST "cuppa-c89f3-default-rtdb.firebaseio.com"
 #define FIREBASE_AUTH "OVwysqwT0yrXKTUfdrL1BNf115wCvXjvv55PLkX4"
 
 FirebaseData fbdo;
@@ -47,10 +51,13 @@ BlynkTimer timer;
 float currentTemp = 0.0;
 bool relayState = false;
 bool isBrewing = false;
+// >>> NEW: Flag to track sensor error state <<<
+bool isSensorError = false; 
 unsigned long brewStartTime = 0;
 const unsigned long brewDuration = 6UL * 60UL * 1000UL;
 unsigned long previousBlinkMillis = 0;
-const unsigned long blinkInterval = 500;
+const unsigned long BLINK_INTERVAL_NORMAL = 500;
+const unsigned long BLINK_INTERVAL_FAST = 50; // 50ms interval for fast blink
 bool ledState = false;
 
 // ====== NEW VARIABLES FOR SENSOR LED BLINKING ======
@@ -80,11 +87,20 @@ void sendTemperature() {
   currentTemp = sensors.getTempCByIndex(0);
   float temp2 = sensors2.getTempCByIndex(0);
 
+  // >>> Check for SENSOR ERROR (-127°C) and set flag <<<
+  if (currentTemp == -127.0 || isnan(currentTemp) || temp2 == -127.0 || isnan(temp2)) {
+    isSensorError = true;
+    relayOff(); // Ensure relay is off during an error
+    Serial.println("❌ CRITICAL ERROR: Sensor not detected (-127C) or reading error!");
+  } else {
+    isSensorError = false;
+  }
+
   // ===== Sensor 1 Detection LED (Blink if error) =====
-  if (!isnan(currentTemp)) {
+  if (!isnan(currentTemp) && currentTemp != -127.0) {
     digitalWrite(LED_SENSOR1, HIGH);   // Sensor OK → LED ON
   } else {
-    if (millis() - lastBlink1 >= 500) {
+    if (millis() - lastBlink1 >= 150) {
       lastBlink1 = millis();
       blinkState1 = !blinkState1;
       digitalWrite(LED_SENSOR1, blinkState1 ? HIGH : LOW);
@@ -92,10 +108,10 @@ void sendTemperature() {
   }
 
   // ===== Sensor 2 Detection LED (Blink if error) =====
-  if (!isnan(temp2)) {
+  if (!isnan(temp2) && temp2 != -127.0) {
     digitalWrite(LED_SENSOR2, HIGH);   // Sensor OK → LED ON
   } else {
-    if (millis() - lastBlink2 >= 500) {
+    if (millis() - lastBlink2 >= 150) {
       lastBlink2 = millis();
       blinkState2 = !blinkState2;
       digitalWrite(LED_SENSOR2, blinkState2 ? HIGH : LOW);
@@ -119,34 +135,38 @@ void sendTemperature() {
     Firebase.setFloat(fbdo, "/coffee/temperature2", temp2);
   }
 
-  // ===== Logic for Sensor #1 =====
-  if (currentTemp < 30.0 && !isBrewing) {
-    Serial.println("⚡ SENSOR 1: Temp below 30°C — starting brew!");
-    isBrewing = true;
-    brewStartTime = millis();
-    relayOn();
-    Firebase.setString(fbdo, "/coffee/status", "brewing");
-    Firebase.setBool(fbdo, "/coffee/command/brewNow", true);
+  // ===== Logic for Sensor #1 (Only run if no error) =====
+  if (!isSensorError) {
+    if (currentTemp < 30.0 && !isBrewing) {
+      Serial.println("⚡ SENSOR 1: Temp below 30°C — starting brew!");
+      isBrewing = true;
+      brewStartTime = millis();
+      relayOn();
+      Firebase.setString(fbdo, "/coffee/status", "brewing");
+      Firebase.setBool(fbdo, "/coffee/command/brewNow", true);
+    }
+  
+    if (currentTemp >= 30.0 && isBrewing && !relayState) {
+      relayOn();
+      Serial.println("🔥 SENSOR 1: Maintaining heat...");
+    }
   }
 
-  if (currentTemp >= 30.0 && isBrewing && !relayState) {
-    relayOn();
-    Serial.println("🔥 SENSOR 1: Maintaining heat...");
-  }
-
-  // ===== Logic for Sensor #2 =====
-  if (temp2 < 30.0 && !isBrewing) {
-    Serial.println("⚡ SENSOR 2: Temp below 30°C — starting brew!");
-    isBrewing = true;
-    brewStartTime = millis();
-    relayOn();
-    Firebase.setString(fbdo, "/coffee/status", "brewing");
-    Firebase.setBool(fbdo, "/coffee/command/brewNow", true);
-  }
-
-  if (temp2 >= 30.0 && isBrewing && !relayState) {
-    relayOn();
-    Serial.println("🔥 Boiler Plate SENSOR : Maintaining heat...");
+  // ===== Logic for Sensor #2 (Only run if no error) =====
+  if (!isSensorError) {
+    if (temp2 < 30.0 && !isBrewing) {
+      Serial.println("⚡ SENSOR 2: Temp below 30°C — starting brew!");
+      isBrewing = true;
+      brewStartTime = millis();
+      relayOn();
+      Firebase.setString(fbdo, "/coffee/status", "brewing");
+      Firebase.setBool(fbdo, "/coffee/command/brewNow", true);
+    }
+  
+    if (temp2 >= 30.0 && isBrewing && !relayState) {
+      relayOn();
+      Serial.println("🔥 Boiler Plate SENSOR : Maintaining heat...");
+    }
   }
 }
 
@@ -173,26 +193,38 @@ void showBrewCountdown() {
   }
 }
 
-// ====== Blink LED While Brewing ======
+// ====== Blink LED While Brewing/Error ======
 void handleStatusLED() {
-  if (isBrewing) {
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousBlinkMillis >= blinkInterval) {
-      previousBlinkMillis = currentMillis;
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState ? HIGH : LOW);
-    }
+  unsigned long currentMillis = millis();
+  unsigned long interval = BLINK_INTERVAL_NORMAL; // Default to normal interval
+
+  if (isSensorError) {
+    interval = BLINK_INTERVAL_FAST; // Use fast interval for error
+  } else if (isBrewing) {
+    interval = BLINK_INTERVAL_NORMAL; // Use normal interval when brewing
   } else {
-    digitalWrite(LED_PIN, LOW);
+    digitalWrite(LED_PIN, LOW); // LED off when idle
+    previousBlinkMillis = currentMillis; // Reset timer when idle
+    return; // Exit function if idle
+  }
+  
+  // Handle the blinking logic using the selected interval
+  if (currentMillis - previousBlinkMillis >= interval) {
+    previousBlinkMillis = currentMillis;
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState ? HIGH : LOW);
   }
 }
 
 // ====== Manual Brew Control ======
 void checkBrewCommand() {
+  // Check if we successfully fetched the data first
   if (Firebase.getBool(fbdo, "/coffee/command/brewNow")) {
-    bool brewNow = fbdo.boolData();
+    // >>> CORRECTED LINE: Use the dot operator (.) instead of arrow (->) <<<
+    bool brewNow = fbdo.boolData(); 
 
-    if (brewNow && !isBrewing) {
+    // Added check: Only allow brewing if there's no sensor error
+    if (brewNow && !isBrewing && !isSensorError) { 
       isBrewing = true;
       brewStartTime = millis();
       relayOn();
