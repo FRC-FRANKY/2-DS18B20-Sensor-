@@ -24,6 +24,9 @@
   ///char ssid [] = "BABIHOUSE";
   //char pass[] = "#BabiCPA080522";
 
+  //char ssid[] = "Kabukimeow";
+  //char pass[] = "12345678";
+
   char ssid[] = "MONKEY D. LUFFY";
   char pass[] = "KINGOFTHEPIRATES";
   // ====== Firebase Config ======
